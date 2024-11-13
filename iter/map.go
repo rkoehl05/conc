@@ -2,9 +2,8 @@ package iter
 
 import (
 	"context"
+	"errors"
 	"sync"
-
-	"github.com/sourcegraph/conc/internal/multierror"
 )
 
 // Mapper is an Iterator with a result type R. It can be used to configure
@@ -48,20 +47,19 @@ func MapErr[T, R any](input []T, f func(*T) (R, error)) ([]R, error) {
 func (m Mapper[T, R]) MapErr(input []T, f func(*T) (R, error)) ([]R, error) {
 	var (
 		errMux sync.Mutex
-		errs   error
+		errs   []error
 	)
 	// MapErr handles its own errors by accumulating them as a multierror, ignoring the error from MapCtx which is only the first error
 	res, _ := m.MapCtx(context.Background(), input, func(ctx context.Context, t *T) (R, error) {
 		ires, err := f(t)
 		if err != nil {
 			errMux.Lock()
-			// TODO: use stdlib errors once multierrors land in go 1.20
-			errs = multierror.Join(errs, err)
+			errs = append(errs, err)
 			errMux.Unlock()
 		}
 		return ires, nil
 	})
-	return res, errs
+	return res, errors.Join(errs...)
 }
 
 // MapCtx is the same as Map except it also accepts a context

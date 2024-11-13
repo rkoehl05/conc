@@ -1,4 +1,4 @@
-package iter
+package iter_test
 
 import (
 	"context"
@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sourcegraph/conc/iter"
+
 	"github.com/stretchr/testify/require"
 )
 
 func ExampleMapper() {
 	input := []int{1, 2, 3, 4}
-	mapper := Mapper[int, bool]{
+	mapper := iter.Mapper[int, bool]{
 		MaxGoroutines: len(input) / 2,
 	}
 
@@ -28,7 +30,7 @@ func TestMap(t *testing.T) {
 		t.Parallel()
 		f := func() {
 			ints := []int{}
-			Map(ints, func(val *int) int {
+			iter.Map(ints, func(val *int) int {
 				panic("this should never be called")
 			})
 		}
@@ -39,7 +41,7 @@ func TestMap(t *testing.T) {
 		t.Parallel()
 		f := func() {
 			ints := []int{1}
-			Map(ints, func(val *int) int {
+			iter.Map(ints, func(val *int) int {
 				panic("super bad thing happened")
 			})
 		}
@@ -49,7 +51,7 @@ func TestMap(t *testing.T) {
 	t.Run("mutating inputs is fine, though not recommended", func(t *testing.T) {
 		t.Parallel()
 		ints := []int{1, 2, 3, 4, 5}
-		Map(ints, func(val *int) int {
+		iter.Map(ints, func(val *int) int {
 			*val += 1
 			return 0
 		})
@@ -59,7 +61,7 @@ func TestMap(t *testing.T) {
 	t.Run("basic increment", func(t *testing.T) {
 		t.Parallel()
 		ints := []int{1, 2, 3, 4, 5}
-		res := Map(ints, func(val *int) int {
+		res := iter.Map(ints, func(val *int) int {
 			return *val + 1
 		})
 		require.Equal(t, []int{2, 3, 4, 5, 6}, res)
@@ -69,7 +71,7 @@ func TestMap(t *testing.T) {
 	t.Run("huge inputs", func(t *testing.T) {
 		t.Parallel()
 		ints := make([]int, 10000)
-		res := Map(ints, func(val *int) int {
+		res := iter.Map(ints, func(val *int) int {
 			return 1
 		})
 		expected := make([]int, 10000)
@@ -83,51 +85,11 @@ func TestMap(t *testing.T) {
 func TestMapErr(t *testing.T) {
 	t.Parallel()
 
-	err1 := errors.New("error1")
-	err2 := errors.New("error2")
-
-	t.Run("error is propagated", func(t *testing.T) {
-		t.Parallel()
-		ints := []int{1, 2, 3, 4, 5}
-		res, err := MapErr(ints, func(val *int) (int, error) {
-			if *val == 3 {
-				return 0, err1
-			}
-			return *val + 1, nil
-		})
-		require.ErrorIs(t, err, err1)
-		require.Equal(t, []int{2, 3, 0, 5, 6}, res)
-		require.Equal(t, []int{1, 2, 3, 4, 5}, ints)
-	})
-
-	t.Run("first errors are propagated", func(t *testing.T) {
-		t.Parallel()
-		ints := []int{1, 2, 3, 4, 5}
-		res, err := MapErr(ints, func(val *int) (int, error) {
-			if *val == 3 {
-				return 0, err1
-			}
-			if *val == 4 {
-				return 0, err2
-			}
-			return *val + 1, nil
-		})
-		require.ErrorIs(t, err, err1)
-		require.ErrorIs(t, err, err2)
-		require.Equal(t, []int{2, 3, 0, 0, 6}, res)
-		require.Equal(t, []int{1, 2, 3, 4, 5}, ints)
-	})
-}
-
-func TestMapCtx(t *testing.T) {
-	t.Parallel()
-
-	bgctx := context.Background()
 	t.Run("empty", func(t *testing.T) {
 		t.Parallel()
 		f := func() {
 			ints := []int{}
-			res, err := MapCtx(bgctx, ints, func(ctx context.Context, val *int) (int, error) {
+			res, err := iter.MapErr(ints, func(val *int) (int, error) {
 				panic("this should never be called")
 			})
 			require.NoError(t, err)
@@ -140,7 +102,7 @@ func TestMapCtx(t *testing.T) {
 		t.Parallel()
 		f := func() {
 			ints := []int{1}
-			_, _ = MapCtx(bgctx, ints, func(ctx context.Context, val *int) (int, error) {
+			_, _ = iter.MapErr(ints, func(val *int) (int, error) {
 				panic("super bad thing happened")
 			})
 		}
@@ -150,7 +112,7 @@ func TestMapCtx(t *testing.T) {
 	t.Run("mutating inputs is fine, though not recommended", func(t *testing.T) {
 		t.Parallel()
 		ints := []int{1, 2, 3, 4, 5}
-		res, err := MapCtx(bgctx, ints, func(ctx context.Context, val *int) (int, error) {
+		res, err := iter.MapErr(ints, func(val *int) (int, error) {
 			*val += 1
 			return 0, nil
 		})
@@ -162,7 +124,7 @@ func TestMapCtx(t *testing.T) {
 	t.Run("basic increment", func(t *testing.T) {
 		t.Parallel()
 		ints := []int{1, 2, 3, 4, 5}
-		res, err := MapCtx(bgctx, ints, func(ctx context.Context, val *int) (int, error) {
+		res, err := iter.MapErr(ints, func(val *int) (int, error) {
 			return *val + 1, nil
 		})
 		require.NoError(t, err)
@@ -176,7 +138,95 @@ func TestMapCtx(t *testing.T) {
 	t.Run("error is propagated", func(t *testing.T) {
 		t.Parallel()
 		ints := []int{1, 2, 3, 4, 5}
-		res, err := MapCtx(bgctx, ints, func(ctx context.Context, val *int) (int, error) {
+		res, err := iter.MapErr(ints, func(val *int) (int, error) {
+			if *val == 3 {
+				return 0, err1
+			}
+			return *val + 1, nil
+		})
+		require.ErrorIs(t, err, err1)
+		require.Equal(t, []int{2, 3, 0, 5, 6}, res)
+		require.Equal(t, []int{1, 2, 3, 4, 5}, ints)
+	})
+
+	t.Run("first errors are propagated", func(t *testing.T) {
+		t.Parallel()
+		ints := []int{1, 2, 3, 4, 5}
+		res, err := iter.MapErr(ints, func(val *int) (int, error) {
+			if *val == 3 {
+				return 0, err1
+			}
+			if *val == 4 {
+				return 0, err2
+			}
+			return *val + 1, nil
+		})
+		require.ErrorIs(t, err, err1)
+		require.ErrorIs(t, err, err2)
+		require.ElementsMatch(t, err.(interface{ Unwrap() []error }).Unwrap(), []error{err1, err2})
+		require.Equal(t, []int{2, 3, 0, 0, 6}, res)
+		require.Equal(t, []int{1, 2, 3, 4, 5}, ints)
+	})
+}
+
+func TestMapCtx(t *testing.T) {
+	t.Parallel()
+
+	bgctx := context.Background()
+	t.Run("empty", func(t *testing.T) {
+		t.Parallel()
+		f := func() {
+			ints := []int{}
+			res, err := iter.MapCtx(bgctx, ints, func(ctx context.Context, val *int) (int, error) {
+				panic("this should never be called")
+			})
+			require.NoError(t, err)
+			require.Equal(t, ints, res)
+		}
+		require.NotPanics(t, f)
+	})
+
+	t.Run("panic is propagated", func(t *testing.T) {
+		t.Parallel()
+		f := func() {
+			ints := []int{1}
+			_, _ = iter.MapCtx(bgctx, ints, func(ctx context.Context, val *int) (int, error) {
+				panic("super bad thing happened")
+			})
+		}
+		require.Panics(t, f)
+	})
+
+	t.Run("mutating inputs is fine, though not recommended", func(t *testing.T) {
+		t.Parallel()
+		ints := []int{1, 2, 3, 4, 5}
+		res, err := iter.MapCtx(bgctx, ints, func(ctx context.Context, val *int) (int, error) {
+			*val += 1
+			return 0, nil
+		})
+		require.NoError(t, err)
+		require.Equal(t, []int{2, 3, 4, 5, 6}, ints)
+		require.Equal(t, []int{0, 0, 0, 0, 0}, res)
+	})
+
+	t.Run("basic increment", func(t *testing.T) {
+		t.Parallel()
+		ints := []int{1, 2, 3, 4, 5}
+		res, err := iter.MapCtx(bgctx, ints, func(ctx context.Context, val *int) (int, error) {
+			return *val + 1, nil
+		})
+		require.NoError(t, err)
+		require.Equal(t, []int{2, 3, 4, 5, 6}, res)
+		require.Equal(t, []int{1, 2, 3, 4, 5}, ints)
+	})
+
+	err1 := errors.New("error1")
+	err2 := errors.New("error2")
+
+	t.Run("error is propagated", func(t *testing.T) {
+		t.Parallel()
+		ints := []int{1, 2, 3, 4, 5}
+		res, err := iter.MapCtx(bgctx, ints, func(ctx context.Context, val *int) (int, error) {
 			if *val == 3 {
 				return 0, err1
 			}
@@ -191,7 +241,7 @@ func TestMapCtx(t *testing.T) {
 	t.Run("first error is propagated", func(t *testing.T) {
 		t.Parallel()
 		ints := []int{1, 2, 3, 4, 5}
-		res, err := MapCtx(bgctx, ints, func(ctx context.Context, val *int) (int, error) {
+		res, err := iter.MapCtx(bgctx, ints, func(ctx context.Context, val *int) (int, error) {
 			if *val == 3 {
 				return 0, err1
 			}
@@ -209,7 +259,7 @@ func TestMapCtx(t *testing.T) {
 	t.Run("huge inputs", func(t *testing.T) {
 		t.Parallel()
 		ints := make([]int, 10000)
-		res, err := MapCtx(bgctx, ints, func(ctx context.Context, val *int) (int, error) {
+		res, err := iter.MapCtx(bgctx, ints, func(ctx context.Context, val *int) (int, error) {
 			return 1, nil
 		})
 		expected := make([]int, 10000)
